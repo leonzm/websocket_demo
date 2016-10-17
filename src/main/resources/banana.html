@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Netty WebSocket 聊天实例</title>
+</head>
+<script src="jquery.min.js" type="text/javascript"></script>
+<script src="map.js" type="text/javascript"></script>
+<script type="text/javascript">
+$(document).ready(function() {
+	var uuid = guid(); // uuid在一个会话唯一
+	var nameOnline = ''; // 上线姓名
+	var onlineName = new Map(); // 已上线人员, <requestId, name>
+	
+	$("#name").attr("disabled","disabled");
+	$("#onlineBtn").attr("disabled","disabled");
+	$("#downlineBtn").attr("disabled","disabled");
+	
+	$("#banana").hide();
+
+    // 初始化websocket
+	var socket;
+	if (!window.WebSocket) {
+		window.WebSocket = window.MozWebSocket;
+	}
+	if (window.WebSocket) {
+		socket = new WebSocket("ws://localhost:9090/");
+		socket.onmessage = function(event) {
+			console.log("收到服务器消息:" + event.data);
+			if (event.data.indexOf("isSucc") != -1) {// 这里需要判断是客户端请求服务端返回后的消息（response）
+				var response = JSON.parse(event.data);
+				if (response != undefined && response != null) {
+				    if (response.serviceId == 1001) { // 上线
+						if (response.isSucc) {
+							// 上线成功，初始化已上线人员
+							onlineName.clear();
+							$("#showOnlineNames").empty();
+							for (var reqId in response.hadOnline) {
+								onlineName.put(reqId, response.hadOnline[reqId]);
+							}
+							initOnline();
+							
+							$("#name").attr("disabled","disabled");
+							$("#onlineBtn").attr("disabled","disabled");
+							$("#downlineBtn").removeAttr("disabled");
+							$("#banana").show();
+						} else {
+							alert("上线失败");
+						}
+					} else if (response.serviceId == 1004) {
+						if (response.isSucc) {
+						    onlineName.clear();
+							$("#showBanana").empty();
+							$("#showOnlineNames").empty();
+							$("#name").removeAttr("disabled");
+							$("#onlineBtn").removeAttr("disabled");
+							$("#downlineBtn").attr("disabled","disabled");
+							$("#banana").hide();
+						} else {
+							alert("下线失败");
+						}
+					}
+				}
+			} else {// 还是服务端向客户端的请求（request）
+			    var request = JSON.parse(event.data);
+				if (request != undefined && request != null) {
+				    if (request.serviceId == 1001 || request.serviceId == 1004) { // 有人上线/下线
+					    if (request.serviceId == 1001) {
+							onlineName.put(request.requestId, request.name);
+						}
+						if (request.serviceId == 1004) {
+							onlineName.removeByKey(request.requestId);
+						}
+					    
+						initOnline();
+					} else if (request.serviceId == 1003) { // 有人发消息
+					    appendBanana(request.name, request.message);
+					}
+				}
+			}
+		};
+		socket.onopen = function(event) {
+			$("#name").removeAttr("disabled");
+			$("#onlineBtn").removeAttr("disabled");
+			console.log("已连接服务器");
+		};
+		socket.onclose = function(event) { // WebSocket 关闭
+			console.log("WebSocket已经关闭!");
+		};
+		socket.onerror = function(event) {
+			console.log("WebSocket异常!");
+		};
+	} else {
+		alert("抱歉，您的浏览器不支持WebSocket协议!");
+	}
+	
+	// WebSocket发送请求
+	function send(message) {
+		if (!window.WebSocket) { return; }
+		if (socket.readyState == WebSocket.OPEN) {
+			socket.send(message);
+		} else {
+			console.log("WebSocket连接没有建立成功!");
+			alert("您还未连接上服务器，请刷新页面重试");
+		}
+	}
+	
+	// 刷新上线人员
+	function initOnline() {
+	    $("#showOnlineNames").empty();
+		for (var i=0;i<onlineName.size();i++) {
+			$("#showOnlineNames").append('<tr><td>' + (i+1) + '</td>' +
+			'<td>' + onlineName.element(i).value + '</td>' +
+			'</tr>');
+		}
+	}
+	// 追加聊天信息
+	function appendBanana(name, message) {
+	    $("#showBanana").append('<tr><td>' + name + ': ' + message + '</td></tr>');
+	}
+	
+	$("#onlineBtn").bind("click", function() {
+	    var name = $("#name").val();
+	    if (name == null || name == '') {
+	        alert("请输入您的尊姓大名");
+		    return;
+	    }
+
+		nameOnline = name;
+		// 上线
+		send(JSON.stringify({"requestId":uuid, "serviceId":1001, "name":name}));
+	});
+	
+	$("#downlineBtn").bind("click", function() {
+		// 下线
+		send(JSON.stringify({"requestId":uuid, "serviceId":1004}));
+	});
+	
+	$("#sendBtn").bind("click", function() {
+		var message = $("#messageInput").val();
+	    if (message == null || message == '') {
+	        alert("请输入您的聊天信息");
+		    return;
+	    }
+		
+		// 发送聊天消息
+		send(JSON.stringify({"requestId":uuid, "serviceId":1002, "name":nameOnline, "message":message}));
+		$("#messageInput").val("");
+	});
+	
+});
+
+function guid() {
+    function S4() {
+       return (((1+Math.random())*0x10000)|0).toString(16).substring(1);
+    }
+    return (S4()+S4()+"-"+S4()+"-"+S4()+"-"+S4()+"-"+S4()+S4()+S4());
+}
+</script>
+<body>
+  <h1>Netty WebSocket 聊天实例</h1>
+  <input type="text" id="name" value="佚名" placeholder="姓名" />
+  <input type="button" id="onlineBtn" value="上线" />
+  <input type="button" id="downlineBtn" value="下线" />
+  <hr/>
+  <table id="banana" border="1" >
+    <tr>
+	  <td width="600" align="center">聊天</td>
+	  <td width="100" align="center">上线人员</td>
+	</tr>
+	<tr height="200" valign="top">
+	  <td>
+	    <table id="showBanana" border="0" width="600">
+			<!--
+		    <tr>
+		      <td>张三: 大家好</td>
+		    </tr>
+		    <tr>
+		      <td>李四: 欢迎加入群聊</td>
+		    </tr>
+			-->
+		</table>
+	  </td>
+	  <td>
+	    <table id="showOnlineNames" border="0">
+		    <!--
+		    <tr>
+			  <td>1</td>
+			  <td>张三</td>
+			<tr/>
+			<tr>
+			  <td>2</td>
+			  <td>李四</td>
+			<tr/>
+			-->
+		</table>
+	  </td>
+	</tr>
+	<tr height="40">
+	  <td></td>
+	  <td></td>
+	</tr>
+	<tr>
+	  <td>
+	    <input type="text" id="messageInput"  style="width:590px" placeholder="巴拉巴拉点什么吧" />
+	  </td>
+	  <td>
+	    <input type="button" id="sendBtn" value="发送" />
+	  </td>
+	</tr>
+  </table>
+
+</body>
+</html>
